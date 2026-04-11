@@ -1,6 +1,6 @@
 # Privacy Policy — Vibe
 
-*Last updated: April 2026*
+_Last updated: April 2026_
 
 ---
 
@@ -8,10 +8,10 @@
 
 Vibe collects and stores the following data **locally on your device only**:
 
-| Data | Where stored | Purpose |
-|------|-------------|---------|
-| Your Anthropic API key | `chrome.storage.local` | Authenticate requests to the Anthropic API |
-| Per-URL CSS/JS customizations | `chrome.storage.local` | Persist your page modifications across visits |
+| Data                           | Where stored           | Purpose                                                      |
+| ------------------------------ | ---------------------- | ------------------------------------------------------------ |
+| Your Anthropic API key         | `chrome.storage.local` | Authenticate requests to the Anthropic API                   |
+| Per-URL CSS/JS customizations  | `chrome.storage.local` | Persist your page modifications across visits                |
 | Conversation history (per URL) | `chrome.storage.local` | Allow Claude to resume sessions and understand prior changes |
 
 **No data is stored on any Vibe server.** There are no Vibe servers. The extension is entirely client-side.
@@ -42,14 +42,14 @@ This data is governed by [Anthropic's Privacy Policy](https://www.anthropic.com/
 
 ## Permissions Explained
 
-| Permission | Why it's needed |
-|-----------|----------------|
-| `storage` | Save your API key and page customizations locally |
-| `<all_urls>` host permission | Inject the Vibe button and run DOM tools on any page you choose to customize |
-| `https://api.anthropic.com/*` | Make requests to the Anthropic API |
+| Permission                    | Why it's needed                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `storage`                     | Save your API key and page customizations locally                            |
+| `<all_urls>` host permission  | Inject the Vibe button and run DOM tools on any page you choose to customize |
+| `https://api.anthropic.com/*` | Make requests to the Anthropic API                                           |
 
 ---
 
 ## Contact
 
-If you have privacy concerns, open an issue on [GitHub](https://github.com/your-username/vibe/issues).
+If you have privacy concerns, open an issue on [GitHub](https://github.com/nithinag10/vibe_ui/issues).

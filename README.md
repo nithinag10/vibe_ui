@@ -4,7 +4,7 @@
 
 Vibe is a Chrome extension that lets you describe changes to any page in plain English — hide elements, restyle sections, tweak layouts — and Claude figures out the CSS/JS to make it happen. Changes persist per URL, so every visit loads your customized version.
 
-> **Demo:** *(screenshot or GIF coming soon)*
+> **Demo:** _(screenshot or GIF coming soon)_
 
 ---
 
@@ -25,15 +25,15 @@ Vibe is a Chrome extension that lets you describe changes to any page in plain E
 
 1. Clone this repo:
    ```bash
-   git clone https://github.com/your-username/vibe.git
-   cd vibe
+   git clone https://github.com/nithinag10/vibe_ui.git
+   cd vibe_ui
    ```
 2. Open Chrome and go to `chrome://extensions`
 3. Enable **Developer mode** (toggle in the top-right)
-4. Click **Load unpacked** and select the `vibe` folder
+4. Click **Load unpacked** and select the `vibe_ui` folder
 5. The ✦ Vibe icon appears in your toolbar
 
-### Chrome Web Store *(coming soon)*
+### Chrome Web Store _(coming soon)_
 
 ---
 
@@ -61,6 +61,7 @@ Your key is stored locally in `chrome.storage.local` and never leaves your devic
 6. The modal closes automatically when done. Your change is saved and will reapply on every visit.
 
 ### Undo / Reset
+
 - **↩ Undo** — reverts to the previous version
 - **Reset** — removes all Vibe changes for the current URL
 - **Version history** — restore any of the last 10 states

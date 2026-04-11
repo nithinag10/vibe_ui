@@ -8,7 +8,7 @@ Thanks for your interest in contributing! Vibe is a vanilla JS Chrome extension 
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/your-username/vibe.git
+   git clone https://github.com/nithinag10/vibe_ui.git
    ```
 2. Go to `chrome://extensions` in Chrome
 3. Enable **Developer mode** (top-right toggle)
@@ -21,12 +21,12 @@ You'll need your own [Anthropic API key](https://console.anthropic.com/settings/
 
 ## Project Structure
 
-| File | Role |
-|------|------|
-| `manifest.json` | Extension manifest (MV3) |
-| `popup.html` / `popup.js` | Toolbar popup — API key input and storage |
-| `content.js` | Injected into every page — the ✦ Vibe button, modal UI, and DOM tool executors |
-| `background.js` | Service worker — Claude agentic loop, Anthropic API calls, context compaction |
+| File                      | Role                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| `manifest.json`           | Extension manifest (MV3)                                                       |
+| `popup.html` / `popup.js` | Toolbar popup — API key input and storage                                      |
+| `content.js`              | Injected into every page — the ✦ Vibe button, modal UI, and DOM tool executors |
+| `background.js`           | Service worker — Claude agentic loop, Anthropic API calls, context compaction  |
 
 ---
 
