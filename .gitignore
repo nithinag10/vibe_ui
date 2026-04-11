@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Extension private key — Chrome generates this when you pack the extension.
+# NEVER commit it — anyone with this file can publish updates as you.
+*.pem
+
+# Packed extension builds
+*.crx
+*.zip
+
+# Dependencies (if a build step is ever added)
+node_modules/
+dist/
