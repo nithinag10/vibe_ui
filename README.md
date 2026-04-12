@@ -27,11 +27,15 @@ Vibe is a Chrome extension that lets you describe changes to any page in plain E
    ```bash
    git clone https://github.com/nithinag10/vibe_ui.git
    cd vibe_ui
+   npm install
+   npm run build
    ```
 2. Open Chrome and go to `chrome://extensions`
 3. Enable **Developer mode** (toggle in the top-right)
-4. Click **Load unpacked** and select the `vibe_ui` folder
+4. Click **Load unpacked** and select the `dist/` folder
 5. The ✦ Vibe icon appears in your toolbar
+
+For development with auto-rebuild: `npm run dev`
 
 ### Chrome Web Store _(coming soon)_
 
@@ -71,12 +75,15 @@ Your key is stored locally in `chrome.storage.local` and never leaves your devic
 ## How It Works
 
 ```
-popup.html / popup.js     — API key management
-content.js                — injects the ✦ Vibe button, modal UI, and DOM tools
-background.js             — runs the Claude agentic loop via Anthropic API
+src/shared/       — config, message protocol, storage helpers
+src/background/   — service worker: Claude agentic loop, API, context compaction
+src/content/      — content script: UI, modal, DOM tools
+src/popup/        — API key management
 ```
 
-When you submit a prompt, `content.js` opens a port to `background.js`, which runs a tool-use loop with Claude:
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full module breakdown.
+
+When you submit a prompt, the content script opens a port to the background service worker, which runs a tool-use loop with Claude:
 
 1. `extract_dom` — snapshots visible page elements
 2. `query_selector` — tests CSS selectors against the live page
@@ -85,7 +92,7 @@ When you submit a prompt, `content.js` opens a port to `background.js`, which ru
 5. `query_selector` (again) — verifies the change took effect
 6. `done` — finalizes when confidence ≥ 70%
 
-**Model:** `claude-sonnet-4-20250514` (hardcoded in `background.js`)
+**Model:** `claude-sonnet-4-20250514` (configurable in `src/shared/config.js`)
 
 **Context compaction:** Long sessions are automatically compacted — first by pruning old tool result bulk, then by using Claude Haiku to summarize if estimated tokens exceed 100k.
 

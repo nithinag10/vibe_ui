@@ -342,6 +342,7 @@ async function compactWithClaude(messages, session, apiKey, port) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 2048,
+        system: COMPACT_SYSTEM,
         messages: [{ role: 'user', content: compactPrompt }],
       }),
     });
@@ -393,12 +394,7 @@ function buildCompactPrompt(messages, session) {
     return '';
   }).filter(Boolean).join('\n\n');
 
-  return `You are summarizing a browser page modification agent session.
-First think inside <analysis> tags, then write your summary inside <summary> tags.
-The summary REPLACES the full conversation — make it complete enough for the agent to continue.
-Do not use tool calls. Text only.
-
-Session transcript:
+  return `Session transcript:
 ${transcript}
 
 Current injected CSS:
@@ -446,6 +442,12 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
   let selectorFailures = 0;
   const MAX_TURNS = 25;
 
+  // MV3 service workers are killed after ~30s of inactivity.
+  // A chrome.storage read every 20s resets the idle timer, keeping us alive
+  // for the full duration of a multi-turn session.
+  const keepAlive = setInterval(() => chrome.storage.local.get('_ping', () => {}), 20_000);
+
+  try {
   while (turnCount < MAX_TURNS) {
     turnCount++;
     console.log(`[Vibe BG] Turn ${turnCount}`);
@@ -577,6 +579,9 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
   // 25 turns exceeded
   console.log('[Vibe BG] Max turns reached');
   safePostMessage(port, { type: 'SESSION_FAILED', reason: 'Reached 25 turns without completing. Partial changes may have been applied.' });
+  } finally {
+    clearInterval(keepAlive);
+  }
 }
 
 // ─── Cached system prompt and tools (built once, reused every call) ──────────
@@ -585,6 +590,34 @@ const CACHED_TOOLS = [
   ...TOOL_DEFINITIONS.slice(0, -1),
   { ...TOOL_DEFINITIONS.at(-1), cache_control: { type: 'ephemeral' } },
 ];
+
+// ─── Cached compaction system prompt (static instructions for Haiku summarizer) ─
+const COMPACT_SYSTEM = [{
+  type: 'text',
+  text: 'You are summarizing a browser page modification agent session. First think inside <analysis> tags, then write your summary inside <summary> tags. The summary REPLACES the full conversation — make it complete enough for the agent to continue. Do not use tool calls. Text only.',
+  cache_control: { type: 'ephemeral' },
+}];
+
+// ─── Cache breakpoint helper ──────────────────────────────────────────────────
+// Stamps a cache_control marker on the second-to-last message so all prior
+// conversation history (DOM snapshot + tool turns) is treated as a cached prefix.
+// Only the current (last) user message is billed at full price each turn.
+function addCacheBreakpoint(messages) {
+  if (messages.length < 2) return messages;
+  return messages.map((msg, i) => {
+    if (i !== messages.length - 2) return msg;
+    const content = Array.isArray(msg.content)
+      ? msg.content
+      : [{ type: 'text', text: msg.content }];
+    return {
+      ...msg,
+      content: [
+        ...content.slice(0, -1),
+        { ...content.at(-1), cache_control: { type: 'ephemeral' } },
+      ],
+    };
+  });
+}
 
 // ─── Anthropic API call ───────────────────────────────────────────────────────
 async function callAPI(messages, apiKey) {
@@ -602,7 +635,7 @@ async function callAPI(messages, apiKey) {
       max_tokens: 4096,
       system: CACHED_SYSTEM,
       tools: CACHED_TOOLS,
-      messages,
+      messages: addCacheBreakpoint(messages),
     }),
   });
 

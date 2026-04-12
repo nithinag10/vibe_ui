@@ -1,0 +1,23 @@
+{
+  "name": "vibe-ui",
+  "version": "1.0.0",
+  "description": "Customize any webpage with natural language. Powered by Claude.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "dev": "node esbuild.config.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "esbuild": "^0.25.0",
+    "eslint": "^10.2.0",
+    "vitest": "^3.1.0"
+  },
+  "license": "MIT"
+}
