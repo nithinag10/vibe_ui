@@ -10,15 +10,18 @@ Vibe is a Chrome MV3 extension with three contexts that communicate via Chrome m
 │  Script       │   TOOL_EXEC / TOOL_RESULT      │  Service Worker   │
 │  (page DOM)   │   ASK_USER / ASK_USER_ANSWER   │  (Claude API)     │
 └──────────────┘   FEED_UPDATE / SESSION_*       └──────────────────┘
-                                                         │
-       ┌──────────┐                                      │  HTTP
-       │  Popup   │  chrome.storage.local                ▼
-       │  (API    │◄────────────────────────►   Anthropic API
+        │                                                │
+        │  chrome.runtime.sendMessage (EXEC_JS)          │  HTTP
+        │───────────────────────────────────────────────►│
+        │  (background injects JS via scripting API)     ▼
+       ┌──────────┐                              Anthropic API
+       │  Popup   │  chrome.storage.local
+       │  (API    │◄────────────────────────►
        │   key)   │
        └──────────┘
 ```
 
-**Content script** — injected into every page. Owns the Vibe button, modal UI, and tool execution (DOM reads, CSS/JS injection). Cannot make cross-origin HTTP requests.
+**Content script** — injected into every page. Owns the Vibe button, modal UI, and tool execution (DOM reads, CSS injection). JS injection is delegated to the background via `chrome.scripting.executeScript` to bypass page CSP restrictions. Cannot make cross-origin HTTP requests.
 
 **Background service worker** — runs the agentic loop. Calls the Anthropic API, manages conversation history, handles context compaction, and dispatches tool calls to the content script via port messages.
 
@@ -35,7 +38,7 @@ Vibe is a Chrome MV3 extension with three contexts that communicate via Chrome m
 7. Content executes tools in page context, returns `TOOL_RESULT`
 8. Loop continues (up to 25 turns) until Claude sends a `done` signal or max turns reached
 9. Background persists session (CSS, JS, history) to `chrome.storage.local`
-10. On page reload, content script restores saved CSS/JS from storage
+10. On page reload, content script restores saved CSS from storage directly, and delegates saved JS execution to the background via `EXEC_JS` message
 
 ## Module Boundaries
 
@@ -44,12 +47,12 @@ Vibe is a Chrome MV3 extension with three contexts that communicate via Chrome m
 Modules imported by both background and content bundles. esbuild inlines them into each output file at build time — no runtime sharing.
 
 - **config.js** — all hardcoded values in one place. Frozen `DEFAULT_CONFIG` with sections: models, api, agent, compaction, dom, timeouts. Supports user overrides via `chrome.storage.local` key `vibe::config`.
-- **messages.js** — message type constants (`MSG.TOOL_EXEC`, etc.) and factory functions. Serves as protocol documentation.
+- **messages.js** — message type constants (`MSG.TOOL_EXEC`, `MSG.EXEC_JS`, etc.) and factory functions. Serves as protocol documentation.
 - **storage.js** — thin Promise wrappers around `chrome.storage.local`.
 
 ### Background (`src/background/`)
 
-- **main.js** — entry point. Listens for port connections, routes messages.
+- **main.js** — entry point. Listens for port connections, routes messages. Also handles `EXEC_JS` requests from content scripts via `chrome.runtime.onMessage`, executing JS in the page using `chrome.scripting.executeScript` (bypasses page CSP).
 - **agent-loop.js** — `agentLoop()` and `startAgentLoop()`. The core loop that calls the API, processes tool use blocks, handles compaction triggers, and detects end conditions.
 - **api.js** — `callAPI()` encapsulates all Anthropic HTTP details (headers, body shape, error handling). `addCacheBreakpoint()` stamps prompt caching hints.
 - **compaction.js** — three layers of context management: (1) prune old tool results, (2) token estimation, (3) Claude Haiku summarization when tokens exceed threshold.

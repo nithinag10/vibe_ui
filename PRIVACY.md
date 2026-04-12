@@ -45,6 +45,7 @@ This data is governed by [Anthropic's Privacy Policy](https://www.anthropic.com/
 | Permission                    | Why it's needed                                                              |
 | ----------------------------- | ---------------------------------------------------------------------------- |
 | `storage`                     | Save your API key and page customizations locally                            |
+| `scripting`                   | Execute AI-generated JavaScript on pages via `chrome.scripting.executeScript` (required to bypass strict Content Security Policies) |
 | `<all_urls>` host permission  | Inject the Vibe button and run DOM tools on any page you choose to customize |
 | `https://api.anthropic.com/*` | Make requests to the Anthropic API                                           |
 

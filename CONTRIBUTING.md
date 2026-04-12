@@ -62,7 +62,7 @@ src/
       extract-dom.js     DOM snapshot extraction
       query-selector.js  Selector validation
       check-dynamic.js   SPA detection via MutationObserver
-      apply-changes.js   CSS/JS injection
+      apply-changes.js   CSS injection + JS delegation to background
   popup/
     popup.js             API key management
 tests/                 Vitest test suites
@@ -73,8 +73,8 @@ dist/                  Built output (gitignored, loaded by Chrome)
 
 ## Key Concepts
 
-- **Agent loop** (`agent-loop.js`) — up to 25 turns; Claude calls tools, content.js executes them in the page context and returns results via Chrome messaging port
-- **Tool dispatch** — background sends `TOOL_EXEC` messages; content executes and replies with `TOOL_RESULT`
+- **Agent loop** (`agent-loop.js`) — up to 25 turns; Claude calls tools, content.js executes them and returns results via Chrome messaging port. JS injection is delegated to the background via `chrome.scripting.executeScript` to bypass page CSP.
+- **Tool dispatch** — background sends `TOOL_EXEC` messages; content executes and replies with `TOOL_RESULT`. For JS execution, content sends `EXEC_JS` messages to background via `chrome.runtime.sendMessage`.
 - **Session persistence** — stored in `chrome.storage.local` keyed as `vibe::<url>`, includes CSS, JS, version history, and conversation history
 - **Context compaction** — Layer 1 prunes old tool results; Layer 3 calls Claude Haiku to summarize if tokens exceed threshold
 - **Message protocol** — all messages use type constants from `shared/messages.js` with factory functions
