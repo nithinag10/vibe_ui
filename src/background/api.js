@@ -24,28 +24,43 @@ export function addCacheBreakpoint(messages) {
 
 // ─── Anthropic API call ───────────────────────────────────────────────────────
 export async function callAPI(messages, apiKey) {
-  const response = await fetch(CONFIG.api.baseUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': CONFIG.api.version,
-      'anthropic-beta': CONFIG.api.beta,
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: CONFIG.models.agent,
-      max_tokens: CONFIG.api.maxTokensAgent,
-      system: CACHED_SYSTEM,
-      tools: CACHED_TOOLS,
-      messages: addCacheBreakpoint(messages),
-    }),
-  });
+  const MAX_RETRIES = 3;
+  let lastError;
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Anthropic API error ${response.status}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const response = await fetch(CONFIG.api.baseUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': CONFIG.api.version,
+        'anthropic-beta': CONFIG.api.beta,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: CONFIG.models.agent,
+        max_tokens: CONFIG.api.maxTokensAgent,
+        system: CACHED_SYSTEM,
+        tools: CACHED_TOOLS,
+        messages: addCacheBreakpoint(messages),
+      }),
+    });
+
+    if (response.status === 529 || response.status === 503) {
+      const err = await response.json().catch(() => ({}));
+      lastError = new Error(err.error?.message || `Anthropic API error ${response.status}`);
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      throw lastError;
+    }
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Anthropic API error ${response.status}`);
+    }
+
+    return response.json();
   }
-
-  return response.json();
 }
