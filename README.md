@@ -4,7 +4,7 @@
 
 Vibe is a Chrome extension that lets you describe changes to any page in plain English — hide elements, restyle sections, tweak layouts — and Claude figures out the CSS/JS to make it happen. Changes persist per URL, so every visit loads your customized version.
 
-https://github.com/user-attachments/assets/34805a74-10e7-48d7-9338-de8161308e78
+https://github.com/user-attachments/assets/864d84b7-fe95-43c4-9b62-3525f9cc4af8
 
 ---
 
