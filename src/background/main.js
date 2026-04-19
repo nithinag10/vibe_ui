@@ -8,15 +8,28 @@ chrome.runtime.onConnect.addListener(handlePortConnect);
 
 // ─── JS execution via scripting API (bypasses page CSP) ──────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type !== MSG.EXEC_JS || !msg.js || !sender.tab?.id) return false;
-  chrome.scripting.executeScript({
-    target: { tabId: sender.tab.id },
-    func: (code) => { try { (0, eval)(code); } catch (e) { console.error('[Vibe] JS execution error:', e); } },
-    args: [msg.js],
-    world: 'MAIN',
-  }).then(() => sendResponse({ ok: true }))
-    .catch(e => sendResponse({ ok: false, error: e.message }));
-  return true; // keep channel open for async sendResponse
+  if (msg.type === MSG.EXEC_JS) {
+    if (!msg.js || !sender.tab?.id) return false;
+    chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id },
+      func: (code) => { try { (0, eval)(code); } catch (e) { console.error('[Vibe] JS execution error:', e); } },
+      args: [msg.js],
+      world: 'MAIN',
+    }).then(() => sendResponse({ ok: true }))
+      .catch(e => sendResponse({ ok: false, error: e.message }));
+    return true; // keep channel open for async sendResponse
+  }
+
+  if (msg.type === MSG.CAPTURE_TAB) {
+    const windowId = sender.tab?.windowId;
+    if (windowId === undefined) { sendResponse({ ok: false, error: 'No windowId' }); return false; }
+    chrome.tabs.captureVisibleTab(windowId, { format: 'png' })
+      .then(dataUrl => sendResponse({ ok: true, dataUrl }))
+      .catch(e => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+
+  return false;
 });
 
 function handlePortConnect(port) {

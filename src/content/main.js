@@ -23,6 +23,10 @@ import { execTool } from './tools/registry.js';
 
   // ─── Inject the floating Vibe button ──────────────────────────────────────
   waitForBody(() => injectVibeButton(() => {
+    if (!chrome.runtime?.id) {
+      alert('Vibe was reloaded — please refresh the page to use it.');
+      return;
+    }
     openModal(pageUrl, storageKey, {
       restoreVibe,
       runVibe,

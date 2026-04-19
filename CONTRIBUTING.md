@@ -7,7 +7,7 @@ Thanks for your interest in contributing! Vibe is a Chrome MV3 extension built w
 ## Running Locally
 
 1. Clone the repo:
-   ```bash
+   ```bash1
    git clone https://github.com/nithinag10/vibe_ui.git
    cd vibe_ui
    ```
@@ -86,29 +86,31 @@ dist/                  Built output (gitignored, loaded by Chrome)
 This is the most common contribution. Each tool is a single file:
 
 1. **Create** `src/content/tools/my-tool.js`:
+
    ```javascript
    export const myTool = {
      definition: {
-       name: 'my_tool',
-       description: 'What this tool does and when Claude should use it.',
+       name: "my_tool",
+       description: "What this tool does and when Claude should use it.",
        input_schema: {
-         type: 'object',
+         type: "object",
          properties: {
-           param: { type: 'string', description: 'What this param is for' },
+           param: { type: "string", description: "What this param is for" },
          },
-         required: ['param'],
+         required: ["param"],
        },
      },
      execute: async ({ param }) => {
        // Tool logic runs in the page context
-       return { result: 'something useful' };
+       return { result: "something useful" };
      },
    };
    ```
 
 2. **Register** in `src/content/tools/registry.js`:
+
    ```javascript
-   import { myTool } from './my-tool.js';
+   import { myTool } from "./my-tool.js";
 
    const TOOLS = [
      // ... existing tools
@@ -135,14 +137,14 @@ This is the most common contribution. Each tool is a single file:
 
 ## Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run build` | Build to `dist/` |
-| `npm run dev` | Build + watch for changes |
-| `npm run test` | Run test suite |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run lint` | Check for lint errors |
-| `npm run lint:fix` | Auto-fix lint errors |
+| Command              | Description               |
+| -------------------- | ------------------------- |
+| `npm run build`      | Build to `dist/`          |
+| `npm run dev`        | Build + watch for changes |
+| `npm run test`       | Run test suite            |
+| `npm run test:watch` | Run tests in watch mode   |
+| `npm run lint`       | Check for lint errors     |
+| `npm run lint:fix`   | Auto-fix lint errors      |
 
 ---
 

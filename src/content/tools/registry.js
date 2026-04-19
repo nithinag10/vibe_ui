@@ -1,23 +1,17 @@
-import { extractDomTool } from './extract-dom.js';
-import { querySelectorTool } from './query-selector.js';
-import { checkDynamicTool } from './check-dynamic.js';
+import { inspectTool } from './inspect.js';
 import { applyChangesTool } from './apply-changes.js';
+import { captureTool } from './capture.js';
 
 // ─── Tool Registry ──────────────────────────────────────────────────────────
-// To add a new tool:
-// 1. Create src/content/tools/my-tool.js exporting { definition, execute }
-// 2. Import and add it to the TOOLS array below
-// 3. Add the tool name to the system prompt in src/background/prompts.js
-// 4. Add a test in tests/content/tools/my-tool.test.js
+// The DOM-side tool surface. Keep it minimal and generic.
+//   • inspect       — understand the page (overview / selector / text / regex)
+//   • apply_changes — inject CSS and/or JS, self-verify, optionally persist
+//   • capture       — screenshot (full viewport or cropped to selector)
+//
+// ask_user and done live in the agent loop, not here.
 
-const TOOLS = [
-  extractDomTool,
-  querySelectorTool,
-  checkDynamicTool,
-  applyChangesTool,
-];
+const TOOLS = [inspectTool, applyChangesTool, captureTool];
 
-// Build a lookup map for O(1) tool dispatch
 const toolMap = new Map(TOOLS.map(t => [t.definition.name, t]));
 
 /** All tool definitions (for sending to the Claude API). */

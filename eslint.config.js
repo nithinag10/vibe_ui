@@ -19,6 +19,10 @@ export default [
         MutationObserver: 'readonly',
         HTMLElement: 'readonly',
         crypto: 'readonly',
+        alert: 'readonly',
+        requestAnimationFrame: 'readonly',
+        Image: 'readonly',
+        URL: 'readonly',
         // Chrome extension globals
         chrome: 'readonly',
       },

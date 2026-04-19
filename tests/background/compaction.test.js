@@ -14,6 +14,39 @@ describe('estimateTokens', () => {
     const long = [{ role: 'user', content: 'x'.repeat(10000) }];
     expect(estimateTokens(long)).toBeGreaterThan(estimateTokens(short));
   });
+
+  it('treats image blocks as flat-cost, not base64-char-count', () => {
+    // 500KB of base64 would look like ~125k tokens under a naive JSON estimator.
+    // With the flat image cost we should see far less.
+    const bigBase64 = 'A'.repeat(500_000);
+    const messages = [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'x',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: bigBase64 } },
+          { type: 'text', text: 'Viewport capture.' },
+        ],
+      }],
+    }];
+    const tokens = estimateTokens(messages);
+    // One image ≈ 1600 tokens + a few for the text. Must be well under 10k.
+    expect(tokens).toBeGreaterThan(1000);
+    expect(tokens).toBeLessThan(5000);
+  });
+
+  it('counts nested tool_result text content', () => {
+    const messages = [{
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: 'x',
+        content: 'x'.repeat(4000),
+      }],
+    }];
+    expect(estimateTokens(messages)).toBe(1000);
+  });
 });
 
 describe('getLastNTurns', () => {
@@ -34,7 +67,6 @@ describe('getLastNTurns', () => {
 
   it('returns last N turns starting from nth-from-last assistant message', () => {
     const result = getLastNTurns(messages, 2);
-    // Should start from 'resp2' (index 3)
     expect(result[0]).toEqual({ role: 'assistant', content: 'resp2' });
     expect(result.length).toBe(4);
   });
@@ -47,21 +79,25 @@ describe('getLastNTurns', () => {
 });
 
 describe('compressToolResultBlock', () => {
-  it('compresses extract_dom results (elements array)', () => {
+  it('compresses inspect (selector/text/regex) results', () => {
     const block = {
       type: 'tool_result',
       tool_use_id: 'abc',
       content: JSON.stringify({
-        elements: [{ tag: 'div' }, { tag: 'span' }, { tag: 'p' }],
-        fingerprint: 'abc123',
+        mode: 'selector',
+        query: '.foo',
+        total: 3,
+        page: 0,
+        matches: [{ path: 'div.foo', tag: 'div' }, { path: 'span.foo', tag: 'span' }],
       }),
     };
     const result = compressToolResultBlock(block);
     const parsed = JSON.parse(result.content);
-    expect(parsed._pruned).toBe('extract_dom');
-    expect(parsed.elementCount).toBe(3);
-    expect(parsed.fingerprint).toBe('abc123');
-    expect(parsed.elements).toBeUndefined();
+    expect(parsed._pruned).toBe('inspect');
+    expect(parsed.mode).toBe('selector');
+    expect(parsed.query).toBe('.foo');
+    expect(parsed.total).toBe(3);
+    expect(parsed.matches).toBeUndefined();
   });
 
   it('compresses apply_changes results', () => {
@@ -70,17 +106,32 @@ describe('compressToolResultBlock', () => {
       tool_use_id: 'abc',
       content: JSON.stringify({
         success: true,
-        matchedSelectors: [
-          { selector: '.foo', count: 2 },
-          { selector: '.bar', count: 1 },
+        verified: [
+          { selector: '.foo', matched: 2, changed: true },
+          { selector: '.bar', matched: 1, changed: false },
         ],
       }),
     };
     const result = compressToolResultBlock(block);
     const parsed = JSON.parse(result.content);
-    expect(parsed.success).toBe(true);
-    expect(parsed.matchedCount).toBe(2);
-    expect(parsed.matchedSelectors).toBeUndefined();
+    expect(parsed._pruned).toBe('apply_changes');
+    expect(parsed.changedCount).toBe(1);
+    expect(parsed.totalSelectors).toBe(2);
+  });
+
+  it('compresses multimodal (capture) blocks to text-only reference', () => {
+    const block = {
+      type: 'tool_result',
+      tool_use_id: 'abc',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+        { type: 'text', text: 'Screenshot of ".header" (480×200).' },
+      ],
+    };
+    const result = compressToolResultBlock(block);
+    const parsed = JSON.parse(result.content);
+    expect(parsed._pruned).toBe('capture');
+    expect(parsed.note).toContain('Screenshot');
   });
 
   it('returns block unchanged if content is not parseable JSON', () => {
@@ -97,7 +148,7 @@ describe('compressToolResultBlock', () => {
     const block = {
       type: 'tool_result',
       tool_use_id: 'abc',
-      content: JSON.stringify({ result: 'dynamic' }),
+      content: JSON.stringify({ foo: 'bar' }),
     };
     expect(compressToolResultBlock(block)).toEqual(block);
   });
@@ -108,19 +159,19 @@ describe('pruneOldToolResults', () => {
     const messages = [
       // Turn 1 (old — should be compressed)
       { role: 'user', content: 'request 1' },
-      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'extract_dom', input: {} }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'inspect', input: {} }] },
       { role: 'user', content: [
-        { type: 'tool_result', tool_use_id: 't1', content: JSON.stringify({ elements: [{tag:'div'},{tag:'span'}], fingerprint: 'fp1' }) },
+        { type: 'tool_result', tool_use_id: 't1', content: JSON.stringify({ mode: 'selector', query: '.a', total: 2, matches: [{tag:'div'},{tag:'span'}] }) },
       ]},
       // Turn 2 (old — should be compressed)
-      { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'query_selector', input: { selector: '.foo' } }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't2', name: 'inspect', input: { selector: '.foo' } }] },
       { role: 'user', content: [
-        { type: 'tool_result', tool_use_id: 't2', content: JSON.stringify({ count: 2, elements: [{tag:'div'}] }) },
+        { type: 'tool_result', tool_use_id: 't2', content: JSON.stringify({ mode: 'selector', query: '.foo', total: 1, matches: [{tag:'div'}] }) },
       ]},
-      // Turn 3 (recent — keep MICRO_COMPACT_KEEP=2 means last 2 assistant turns kept)
+      // Turn 3 (recent — MICRO_COMPACT_KEEP=2 means last 2 assistant turns kept)
       { role: 'assistant', content: [{ type: 'tool_use', id: 't3', name: 'apply_changes', input: { css: 'body{}', js: '' } }] },
       { role: 'user', content: [
-        { type: 'tool_result', tool_use_id: 't3', content: JSON.stringify({ success: true, matchedSelectors: [{selector:'.x',count:1}] }) },
+        { type: 'tool_result', tool_use_id: 't3', content: JSON.stringify({ success: true, verified: [{selector:'.x',matched:1,changed:true}] }) },
       ]},
       // Turn 4 (recent — kept intact)
       { role: 'assistant', content: [{ type: 'tool_use', id: 't4', name: 'done', input: {} }] },
@@ -131,15 +182,13 @@ describe('pruneOldToolResults', () => {
 
     const result = pruneOldToolResults(messages);
 
-    // Old turn (index 2): extract_dom should be compressed
-    const oldExtract = JSON.parse(result[2].content[0].content);
-    expect(oldExtract._pruned).toBe('extract_dom');
-    expect(oldExtract.elementCount).toBe(2);
+    const oldInspect = JSON.parse(result[2].content[0].content);
+    expect(oldInspect._pruned).toBe('inspect');
+    expect(oldInspect.total).toBe(2);
 
-    // Recent turns (last 2 assistant turns = indices 5+) should be intact
     const recentApply = JSON.parse(result[6].content[0].content);
     expect(recentApply.success).toBe(true);
-    expect(recentApply.matchedSelectors).toBeDefined();
+    expect(recentApply.verified).toBeDefined();
   });
 
   it('handles empty messages array', () => {

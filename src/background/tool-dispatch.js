@@ -20,7 +20,7 @@ export function dispatchToolExec(name, input, port) {
   return new Promise((resolve, reject) => {
     pendingToolExecs.set(execId, { resolve, reject });
     safePostMessage(port, createToolExec(execId, name, input));
-    const timeout = name === 'check_dynamic' ? CONFIG.timeouts.toolExecCheckDynamic : CONFIG.timeouts.toolExecDefault;
+    const timeout = name === 'capture' ? CONFIG.timeouts.toolExecCapture : CONFIG.timeouts.toolExecDefault;
     setTimeout(() => {
       if (pendingToolExecs.has(execId)) {
         pendingToolExecs.delete(execId);

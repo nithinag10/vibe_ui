@@ -19,59 +19,40 @@ export async function startAgentLoop({ prompt, url }, port) {
     js: '',
     applied: [],
     conversationHistory: [],
-    domFingerprint: null,
   };
 
-  let domSnapshot;
-  let fingerprintWarning = '';
-
-  if (!session.domFingerprint || session.conversationHistory?.length === 0) {
-    domSnapshot = await dispatchToolExec('extract_dom', {}, port);
-    session.domFingerprint = domSnapshot.fingerprint;
-  } else {
-    const check = await dispatchToolExec('extract_dom', {}, port);
-    if (check.fingerprint !== session.domFingerprint) {
-      fingerprintWarning = '\n\nWARNING: The page DOM structure has changed since your last session. Re-verify all selectors before applying — previously saved selectors may no longer work.';
-      console.log('[Vibe BG] DOM fingerprint changed — warning Claude');
-      session.domFingerprint = check.fingerprint;
-    }
-    domSnapshot = check;
-  }
-
-  const messages = buildInitialMessages(prompt, session, domSnapshot, fingerprintWarning);
+  // Always fetch a fresh overview at session start so the model has a grounding
+  // anchor. The old fingerprint-diff path was noise: a cheap inspect call gives
+  // the agent a current view either way.
+  const overview = await dispatchToolExec('inspect', {}, port);
+  const messages = buildInitialMessages(prompt, session, overview);
   await agentLoop(messages, session, port, url, apiKey, prompt);
 }
 
-function buildInitialMessages(prompt, session, domSnapshot, fingerprintWarning) {
+function buildInitialMessages(prompt, session, overview) {
   if (session.conversationHistory && session.conversationHistory.length > 0) {
-    const history = session.conversationHistory;
-    const resumeContext = fingerprintWarning
-      ? `${fingerprintWarning}\n\nNew request: ${prompt}`
-      : `New request: ${prompt}`;
-    return [...history, { role: 'user', content: resumeContext }];
+    return [...session.conversationHistory, { role: 'user', content: `New request: ${prompt}` }];
   }
 
   const recentApplied = (session.applied || []).slice(-5);
   const appliedSummary = recentApplied.length
-    ? 'Previously applied on this page (most recent 5):\n' + recentApplied.map(a => `- ${a.intent} (selector: ${a.selector}, method: ${a.method})`).join('\n')
+    ? 'Previously applied on this page (most recent 5):\n' + recentApplied.map(a => `- ${a.intent} (method: ${a.method})`).join('\n')
     : 'No previous changes on this page.';
 
-  const syntheticExtractId = 'extract_dom_init';
+  const syntheticId = 'inspect_init';
   return [
     {
       role: 'user',
-      content: `Page URL: ${session.url}\n\n${appliedSummary}${fingerprintWarning}\n\nUser request: "${prompt}"\n\nI have already called extract_dom for you. The result is provided below.`,
+      content: `Page URL: ${session.url}\n\n${appliedSummary}\n\nUser request: "${prompt}"\n\nI have already called inspect (overview mode) for you — the result is below. Use it to orient, then inspect deeper before apply_changes.`,
     },
     {
       role: 'assistant',
-      content: [
-        { type: 'tool_use', id: syntheticExtractId, name: 'extract_dom', input: {} },
-      ],
+      content: [{ type: 'tool_use', id: syntheticId, name: 'inspect', input: {} }],
     },
     {
       role: 'user',
       content: [
-        { type: 'tool_result', tool_use_id: syntheticExtractId, content: JSON.stringify(domSnapshot) },
+        { type: 'tool_result', tool_use_id: syntheticId, content: JSON.stringify(overview) },
       ],
     },
   ];
@@ -123,14 +104,6 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
 
       if (block.name === 'done') {
         const { summary, confidence, css, js } = block.input;
-        if (confidence < CONFIG.agent.confidenceThreshold) {
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: block.id,
-            content: JSON.stringify({ error: `confidence too low — must be >= ${CONFIG.agent.confidenceThreshold}. Keep iterating.` }),
-          });
-          continue;
-        }
         if (session.css || session.js) {
           if (!session.history) session.history = [];
           const lastApplied = session.applied[session.applied.length - 1];
@@ -144,7 +117,7 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
         }
         session.css = css;
         session.js  = js;
-        session.applied.push({ intent: prompt, selector: '(see css/js)', method: css ? 'css' : 'js', dynamic: false });
+        session.applied.push({ intent: prompt, method: css ? (js ? 'css+js' : 'css') : 'js' });
         session.conversationHistory = messages;
         await persistSession(url, session);
         safePostMessage(port, createFeedUpdate('done', { text: summary, confidence }));
@@ -175,23 +148,18 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
         continue;
       }
 
-      if (block.name === 'query_selector') {
-        if (result.count === 0) {
-          selectorFailures++;
-          console.log(`[Vibe BG] Selector failures: ${selectorFailures}`);
-          if (selectorFailures >= CONFIG.agent.selectorFailureHintAt) {
-            result._hint = 'You have failed to find this selector multiple times. Consider calling ask_user to get more details from the user about the target element.';
-          }
-        } else {
-          selectorFailures = 0;
+      // Track failed inspect attempts so we can nudge toward ask_user after repeated misses.
+      if (block.name === 'inspect' && result?.total === 0 && (block.input?.selector || block.input?.text || block.input?.regex)) {
+        selectorFailures++;
+        console.log(`[Vibe BG] Inspect zero-match count: ${selectorFailures}`);
+        if (selectorFailures >= CONFIG.agent.selectorFailureHintAt) {
+          result._hint = 'You have found zero matches multiple times in a row. Switch modes (text or regex), call capture to see the page, or ask_user for clarification.';
         }
+      } else if (block.name === 'inspect') {
+        selectorFailures = 0;
       }
 
-      toolResults.push({
-        type: 'tool_result',
-        tool_use_id: block.id,
-        content: JSON.stringify(result),
-      });
+      toolResults.push(buildToolResultBlock(block.id, result));
     }
 
     if (sessionDone) return;
@@ -205,4 +173,14 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
   } finally {
     clearInterval(keepAlive);
   }
+}
+
+// Tool results are normally JSON-stringified. If a tool returns a multimodal
+// payload (e.g. capture), pass its pre-built content-block array through so
+// the model receives an actual image block.
+function buildToolResultBlock(toolUseId, result) {
+  if (result && result._multimodal && Array.isArray(result.content)) {
+    return { type: 'tool_result', tool_use_id: toolUseId, content: result.content };
+  }
+  return { type: 'tool_result', tool_use_id: toolUseId, content: JSON.stringify(result) };
 }

@@ -1,7 +1,8 @@
 // ─── Chrome storage helpers ─────────────────────────────────────────────────
 
-/** Get a single value from chrome.storage.local by key. Returns null if missing. */
+/** Get a single value from chrome.storage.local by key. Returns null if missing or context invalidated. */
 export function storageGet(key) {
+  if (!chrome.runtime?.id) return Promise.resolve(null);
   return new Promise(r => chrome.storage.local.get(key, d => r(d[key] ?? null)));
 }
 

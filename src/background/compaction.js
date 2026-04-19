@@ -4,8 +4,36 @@ import { COMPACT_SYSTEM } from './prompts.js';
 import { safePostMessage } from './tool-dispatch.js';
 
 // ─── Layer 2: rough token estimator ──────────────────────────────────────────
+// Walks the message tree and sums text-like content by character length, while
+// counting image blocks separately at a flat per-image cost. The old JSON-based
+// estimator counted base64 image data as 500KB of "text", wildly overestimating
+// cost after any capture call and forcing spurious compactions.
 export function estimateTokens(messages) {
-  return Math.ceil(JSON.stringify(messages).length / CONFIG.compaction.charsPerToken);
+  const acc = { chars: 0, images: 0 };
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      acc.chars += msg.content.length;
+      continue;
+    }
+    if (!Array.isArray(msg.content)) continue;
+    for (const block of msg.content) walkBlock(block, acc);
+  }
+  return Math.ceil(acc.chars / CONFIG.compaction.charsPerToken) + acc.images * CONFIG.compaction.tokensPerImage;
+}
+
+function walkBlock(block, acc) {
+  if (!block || typeof block !== 'object') return;
+  if (block.type === 'image') { acc.images++; return; }
+  if (block.type === 'text' && typeof block.text === 'string') acc.chars += block.text.length;
+  if (block.type === 'tool_use') {
+    if (block.name) acc.chars += block.name.length;
+    if (block.input) acc.chars += JSON.stringify(block.input).length;
+    return;
+  }
+  if (block.type === 'tool_result') {
+    if (typeof block.content === 'string') acc.chars += block.content.length;
+    else if (Array.isArray(block.content)) for (const sub of block.content) walkBlock(sub, acc);
+  }
 }
 
 // ─── Helper: get the last N assistant turns + their following user messages ──
@@ -44,37 +72,52 @@ export function pruneOldToolResults(messages) {
 }
 
 export function compressToolResultBlock(block) {
+  // Multimodal blocks (images from capture) are not JSON — drop the image on compaction.
+  if (Array.isArray(block.content)) {
+    const textPart = block.content.find(b => b.type === 'text');
+    return {
+      ...block,
+      content: JSON.stringify({ _pruned: 'capture', note: textPart?.text || 'screenshot dropped on compaction' }),
+    };
+  }
   if (!block.content) return block;
   let parsed;
   try { parsed = JSON.parse(block.content); } catch { return block; }
 
-  // extract_dom result: huge elements array — replace with summary
-  if (Array.isArray(parsed.elements)) {
+  // inspect result: drop full matches array, keep counts + mode
+  if (parsed.mode && Array.isArray(parsed.matches)) {
     return {
       ...block,
       content: JSON.stringify({
-        _pruned: 'extract_dom',
-        elementCount: parsed.elements.length,
-        fingerprint: parsed.fingerprint,
+        _pruned: 'inspect',
+        mode: parsed.mode,
+        query: parsed.query,
+        total: parsed.total,
       }),
     };
   }
 
-  // query_selector result: drop computed styles, keep just count
-  if (parsed.count !== undefined && Array.isArray(parsed.elements)) {
-    return {
-      ...block,
-      content: JSON.stringify({ count: parsed.count }),
-    };
-  }
-
-  // apply_changes result: drop full matchedSelectors list, keep just summary
-  if (parsed.success !== undefined && Array.isArray(parsed.matchedSelectors)) {
+  // inspect overview: keep just summary counts
+  if (parsed.mode === 'overview') {
     return {
       ...block,
       content: JSON.stringify({
+        _pruned: 'inspect:overview',
+        totalElements: parsed.totalElements,
+        iframeCount: parsed.iframes?.length || 0,
+      }),
+    };
+  }
+
+  // apply_changes result: drop verified details, keep summary
+  if (parsed.success !== undefined && Array.isArray(parsed.verified)) {
+    return {
+      ...block,
+      content: JSON.stringify({
+        _pruned: 'apply_changes',
         success: parsed.success,
-        matchedCount: parsed.matchedSelectors.length,
+        changedCount: parsed.verified.filter(v => v.changed).length,
+        totalSelectors: parsed.verified.length,
       }),
     };
   }

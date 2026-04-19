@@ -11,6 +11,7 @@ export const MSG = Object.freeze({
   ASK_USER_ANSWER:  'ASK_USER_ANSWER',
   FEED_UPDATE:      'FEED_UPDATE',
   EXEC_JS:          'EXEC_JS',
+  CAPTURE_TAB:      'CAPTURE_TAB',
 });
 
 // ─── Factory functions ──────────────────────────────────────────────────────

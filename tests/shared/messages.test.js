@@ -21,6 +21,8 @@ describe('MSG constants', () => {
     expect(MSG.ASK_USER).toBe('ASK_USER');
     expect(MSG.ASK_USER_ANSWER).toBe('ASK_USER_ANSWER');
     expect(MSG.FEED_UPDATE).toBe('FEED_UPDATE');
+    expect(MSG.EXEC_JS).toBe('EXEC_JS');
+    expect(MSG.CAPTURE_TAB).toBe('CAPTURE_TAB');
   });
 
   it('is frozen', () => {
@@ -59,11 +61,11 @@ describe('message factories', () => {
   });
 
   it('createToolExec', () => {
-    const msg = createToolExec('abc-123', 'extract_dom', {});
+    const msg = createToolExec('abc-123', 'inspect', {});
     expect(msg).toEqual({
       type: 'TOOL_EXEC',
       execId: 'abc-123',
-      name: 'extract_dom',
+      name: 'inspect',
       input: {},
     });
   });
@@ -106,11 +108,11 @@ describe('message factories', () => {
   });
 
   it('createFeedUpdate with tool kind', () => {
-    const msg = createFeedUpdate('tool', { tool: 'extract_dom' });
+    const msg = createFeedUpdate('tool', { tool: 'inspect' });
     expect(msg).toEqual({
       type: 'FEED_UPDATE',
       kind: 'tool',
-      tool: 'extract_dom',
+      tool: 'inspect',
     });
   });
 });

@@ -18,7 +18,7 @@ const DEFAULT_CONFIG = Object.freeze({
 
   agent: {
     maxTurns: 25,
-    confidenceThreshold: 70,
+    confidenceThreshold: 50,
     selectorFailureHintAt: 3,
     maxHistorySnapshots: 10,
   },
@@ -28,22 +28,30 @@ const DEFAULT_CONFIG = Object.freeze({
     microCompactKeep: 2,
     fullCompactKeep: 3,
     charsPerToken: 4,
+    tokensPerImage: 1600,
   },
 
   dom: {
-    elementCap: 600,
-    fingerprintSampleSize: 200,
-    textSliceLength: 80,
+    textSliceLength: 120,
     maxClassesPerElement: 8,
-    selectorPreviewCount: 3,
+    outerHTMLLimit: 500,
+    defaultLimit: 15,
+    maxLimit: 50,
+  },
+
+  apply: {
+    persistentThrottleMs: 300,
+  },
+
+  capture: {
+    maxEdge: 1280,
   },
 
   timeouts: {
     toolExecDefault: 10_000,
-    toolExecCheckDynamic: 8_000,
+    toolExecCapture: 15_000,
     askUser: 300_000,
     keepAlivePing: 20_000,
-    checkDynamicWatch: 3_000,
     modalAutoClose: 1_800,
   },
 });

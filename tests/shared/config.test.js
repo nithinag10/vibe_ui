@@ -39,19 +39,26 @@ describe('CONFIG defaults', () => {
   });
 
   it('has valid DOM config', () => {
-    expect(CONFIG.dom.elementCap).toBeGreaterThan(0);
-    expect(CONFIG.dom.fingerprintSampleSize).toBeLessThanOrEqual(CONFIG.dom.elementCap);
     expect(CONFIG.dom.textSliceLength).toBeGreaterThan(0);
     expect(CONFIG.dom.maxClassesPerElement).toBeGreaterThan(0);
-    expect(CONFIG.dom.selectorPreviewCount).toBeGreaterThan(0);
+    expect(CONFIG.dom.outerHTMLLimit).toBeGreaterThan(0);
+    expect(CONFIG.dom.defaultLimit).toBeGreaterThan(0);
+    expect(CONFIG.dom.maxLimit).toBeGreaterThanOrEqual(CONFIG.dom.defaultLimit);
+  });
+
+  it('has valid capture config', () => {
+    expect(CONFIG.capture.maxEdge).toBeGreaterThan(0);
+  });
+
+  it('has valid apply config', () => {
+    expect(CONFIG.apply.persistentThrottleMs).toBeGreaterThan(0);
   });
 
   it('has valid timeout config', () => {
     expect(CONFIG.timeouts.toolExecDefault).toBeGreaterThan(0);
-    expect(CONFIG.timeouts.toolExecCheckDynamic).toBeGreaterThan(0);
+    expect(CONFIG.timeouts.toolExecCapture).toBeGreaterThan(0);
     expect(CONFIG.timeouts.askUser).toBeGreaterThan(0);
     expect(CONFIG.timeouts.keepAlivePing).toBeGreaterThan(0);
-    expect(CONFIG.timeouts.checkDynamicWatch).toBeGreaterThan(0);
     expect(CONFIG.timeouts.modalAutoClose).toBeGreaterThan(0);
   });
 
