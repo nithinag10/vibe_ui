@@ -84,32 +84,65 @@ export function compressToolResultBlock(block) {
   let parsed;
   try { parsed = JSON.parse(block.content); } catch { return block; }
 
-  // inspect result: drop full matches array, keep counts + mode
+  // inspect result: keep top-N compacted matches so the agent retains enough
+  // structural detail to reason later without re-inspecting. Zero-match results
+  // stay intact — "this selector found nothing" is load-bearing context.
   if (parsed.mode && Array.isArray(parsed.matches)) {
+    if (parsed.total === 0) return block;
+    const keep = CONFIG.compaction.inspectKeepMatches ?? 10;
+    console.log(`[Vibe BG] compacted inspect: kept=${Math.min(parsed.matches.length, keep)} of total=${parsed.total} mode=${parsed.mode}`);
+    const compact = parsed.matches.slice(0, keep).map(m => ({
+      tag: m.tag,
+      id: m.id,
+      classes: m.classes,
+      rect: m.rect,
+      text: m.text ? String(m.text).slice(0, 100) : null,
+      path: m.path,
+      outerHTML: m.outerHTML ? String(m.outerHTML).slice(0, 200) : null,
+    }));
     return {
       ...block,
       content: JSON.stringify({
-        _pruned: 'inspect',
+        _compacted: 'inspect',
         mode: parsed.mode,
         query: parsed.query,
         total: parsed.total,
+        matches: compact,
       }),
     };
   }
 
-  // inspect overview: keep just summary counts
-  if (parsed.mode === 'overview') {
+  // map_page / inspect overview: preserve framework + semantics + top-level
+  // structure; only drop the bulky iframe list to its count.
+  if (parsed._kind === 'map_page' || parsed.mode === 'overview') {
     return {
       ...block,
       content: JSON.stringify({
-        _pruned: 'inspect:overview',
+        _compacted: parsed._kind === 'map_page' ? 'map_page' : 'inspect:overview',
+        url: parsed.url,
+        framework: parsed.framework,
+        semantics: parsed.semantics,
         totalElements: parsed.totalElements,
-        iframeCount: parsed.iframes?.length || 0,
+        iframeCount: Array.isArray(parsed.iframes) ? parsed.iframes.length : 0,
       }),
     };
   }
 
-  // apply_changes result: drop verified details, keep summary
+  // confirm_selector result: keep verdict + match count + the first sample.
+  if (parsed._kind === 'confirm_selector') {
+    return {
+      ...block,
+      content: JSON.stringify({
+        _compacted: 'confirm_selector',
+        selector: parsed.selector,
+        verdict: parsed.verdict,
+        matchCount: parsed.matchCount,
+        sample: Array.isArray(parsed.elements) ? parsed.elements[0] : null,
+      }),
+    };
+  }
+
+  // apply_changes result: drop screenshot + verified details, keep summary.
   if (parsed.success !== undefined && Array.isArray(parsed.verified)) {
     return {
       ...block,
@@ -118,6 +151,7 @@ export function compressToolResultBlock(block) {
         success: parsed.success,
         changedCount: parsed.verified.filter(v => v.changed).length,
         totalSelectors: parsed.verified.length,
+        consoleErrorCount: Array.isArray(parsed.consoleErrors) ? parsed.consoleErrors.length : 0,
       }),
     };
   }

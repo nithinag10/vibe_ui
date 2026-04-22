@@ -21,6 +21,11 @@ const DEFAULT_CONFIG = Object.freeze({
     confidenceThreshold: 50,
     selectorFailureHintAt: 3,
     maxHistorySnapshots: 10,
+    // Stuck-loop detection: if the same (name + input) signature appears this
+    // many times in the rolling window, force an ask_user escalation instead
+    // of dispatching the duplicate tool call.
+    stuckLoopThreshold: 3,
+    stuckLoopWindow: 6,
   },
 
   compaction: {
@@ -29,6 +34,10 @@ const DEFAULT_CONFIG = Object.freeze({
     fullCompactKeep: 3,
     charsPerToken: 4,
     tokensPerImage: 1600,
+    // Max inspect matches preserved on old turns during micro-compaction. Older
+    // turns keep the top-N (with compact fields) instead of collapsing to a
+    // count — the agent needs real element data to reason from.
+    inspectKeepMatches: 10,
   },
 
   dom: {
@@ -42,6 +51,23 @@ const DEFAULT_CONFIG = Object.freeze({
   apply: {
     persistentThrottleMs: 300,
   },
+
+  confirm: {
+    // Match counts at or above this are flagged as "too-broad" — the selector
+    // likely hits unrelated elements and should be narrowed before apply_changes.
+    tooBroadAt: 21,
+    sampleSize: 5,
+  },
+
+  // CSS properties that trigger auto-capture inside apply_changes. Visibility
+  // and layout changes need pixel verification; color/font/spacing don't.
+  autoCaptureProps: [
+    'display', 'visibility', 'opacity',
+    'position', 'transform',
+    'width', 'height',
+    'top', 'left', 'right', 'bottom',
+    'z-index', 'float', 'overflow',
+  ],
 
   capture: {
     maxEdge: 1280,

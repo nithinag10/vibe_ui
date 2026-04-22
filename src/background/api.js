@@ -1,5 +1,5 @@
 import { CONFIG } from '../shared/config.js';
-import { CACHED_SYSTEM, CACHED_TOOLS } from './prompts.js';
+import { CACHED_TOOLS, buildSystemPrompt } from './prompts.js';
 
 // ─── Cache breakpoint helper ──────────────────────────────────────────────────
 // Stamps a cache_control marker on the second-to-last message so all prior
@@ -23,7 +23,7 @@ export function addCacheBreakpoint(messages) {
 }
 
 // ─── Anthropic API call ───────────────────────────────────────────────────────
-export async function callAPI(messages, apiKey) {
+export async function callAPI(messages, apiKey, { framework } = {}) {
   const MAX_RETRIES = 3;
   let lastError;
 
@@ -40,7 +40,7 @@ export async function callAPI(messages, apiKey) {
       body: JSON.stringify({
         model: CONFIG.models.agent,
         max_tokens: CONFIG.api.maxTokensAgent,
-        system: CACHED_SYSTEM,
+        system: buildSystemPrompt(framework),
         tools: CACHED_TOOLS,
         messages: addCacheBreakpoint(messages),
       }),

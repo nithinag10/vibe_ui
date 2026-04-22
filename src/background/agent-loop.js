@@ -21,15 +21,16 @@ export async function startAgentLoop({ prompt, url }, port) {
     conversationHistory: [],
   };
 
-  // Always fetch a fresh overview at session start so the model has a grounding
-  // anchor. The old fingerprint-diff path was noise: a cheap inspect call gives
-  // the agent a current view either way.
-  const overview = await dispatchToolExec('inspect', {}, port);
-  const messages = buildInitialMessages(prompt, session, overview);
-  await agentLoop(messages, session, port, url, apiKey, prompt);
+  // Map the page at session start so the model has framework detection,
+  // semantic landmarks, top-level sections, and iframes in context before
+  // turn 1. The framework field also feeds the system-prompt guardrail.
+  const map = await dispatchToolExec('map_page', {}, port);
+  console.log(`[Vibe BG] map_page init → framework=${map?.framework} totalElements=${map?.totalElements} iframes=${Array.isArray(map?.iframes) ? map.iframes.length : 0}`);
+  const messages = buildInitialMessages(prompt, session, map);
+  await agentLoop(messages, session, port, url, apiKey, prompt, map?.framework);
 }
 
-function buildInitialMessages(prompt, session, overview) {
+function buildInitialMessages(prompt, session, map) {
   if (session.conversationHistory && session.conversationHistory.length > 0) {
     return [...session.conversationHistory, { role: 'user', content: `New request: ${prompt}` }];
   }
@@ -39,29 +40,35 @@ function buildInitialMessages(prompt, session, overview) {
     ? 'Previously applied on this page (most recent 5):\n' + recentApplied.map(a => `- ${a.intent} (method: ${a.method})`).join('\n')
     : 'No previous changes on this page.';
 
-  const syntheticId = 'inspect_init';
+  const syntheticId = 'map_page_init';
   return [
     {
       role: 'user',
-      content: `Page URL: ${session.url}\n\n${appliedSummary}\n\nUser request: "${prompt}"\n\nI have already called inspect (overview mode) for you — the result is below. Use it to orient, then inspect deeper before apply_changes.`,
+      content: `Page URL: ${session.url}\n\n${appliedSummary}\n\nUser request: "${prompt}"\n\nI have already called map_page for you — the result is below. Use the semantic selectors as anchors, then confirm_selector before apply_changes.`,
     },
     {
       role: 'assistant',
-      content: [{ type: 'tool_use', id: syntheticId, name: 'inspect', input: {} }],
+      content: [{ type: 'tool_use', id: syntheticId, name: 'map_page', input: {} }],
     },
     {
       role: 'user',
       content: [
-        { type: 'tool_result', tool_use_id: syntheticId, content: JSON.stringify(overview) },
+        { type: 'tool_result', tool_use_id: syntheticId, content: JSON.stringify(map) },
       ],
     },
   ];
 }
 
 // ─── Main agentic loop ───────────────────────────────────────────────────────
-async function agentLoop(messages, session, port, url, apiKey, prompt) {
+async function agentLoop(messages, session, port, url, apiKey, prompt, framework) {
   let turnCount = 0;
   let selectorFailures = 0;
+  // Selectors the agent has confirmed in this session with verdict === 'good'.
+  // apply_changes is refused if any selector in its CSS isn't in this set.
+  const confirmedSelectors = new Set();
+  // Rolling window of the last N tool-call signatures (name + JSON input).
+  // If the next call matches twice already seen, we force an ask_user escalation.
+  let recentCalls = [];
 
   const keepAlive = setInterval(() => chrome.storage.local.get('_ping', () => {}), CONFIG.timeouts.keepAlivePing);
 
@@ -80,7 +87,7 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
 
     safePostMessage(port, createFeedUpdate('thinking', { text: `Turn ${turnCount}…` }));
 
-    const response = await callAPI(messages, apiKey);
+    const response = await callAPI(messages, apiKey, { framework });
     console.log('[Vibe BG] stop_reason:', response.stop_reason);
 
     const textBlocks = response.content.filter(b => b.type === 'text');
@@ -137,7 +144,48 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
           continue;
         }
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify({ answer }) });
+        recentCalls = [];
         continue;
+      }
+
+      // ── Stuck-loop guard ──────────────────────────────────────────────────
+      // If the model is about to repeat a call it has already made twice in
+      // the last N turns, don't dispatch — force an ask_user escalation. This
+      // catches dead inspection loops that would otherwise burn all 25 turns.
+      const sig = block.name + ':' + stableHash(block.input);
+      const repeats = recentCalls.filter(h => h === sig).length;
+      if (repeats >= CONFIG.agent.stuckLoopThreshold - 1) {
+        console.log(`[Vibe BG] stuck-loop: sig=${sig.slice(0, 120)} repeats=${repeats + 1} → forcing ask_user`);
+        const escalation = `I've tried the same ${block.name} call ${repeats + 1} times in a row without progress. Can you help me narrow down? Right-click the element you want changed, pick "Inspect" in the browser devtools, and tell me the tag + id + a class you see.`;
+        safePostMessage(port, createFeedUpdate('question', { text: escalation }));
+        let answer;
+        try {
+          answer = await toolAskUser(block.id, escalation, [], port);
+        } catch {
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, is_error: true, content: 'Stuck-loop escalation timed out without a user response.' });
+          recentCalls = [];
+          continue;
+        }
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: block.id,
+          content: JSON.stringify({ forcedEscalation: true, reason: 'repeated_identical_call', userAnswer: answer }),
+        });
+        recentCalls = [];
+        continue;
+      }
+      recentCalls.push(sig);
+      if (recentCalls.length > CONFIG.agent.stuckLoopWindow) recentCalls.shift();
+
+      // ── confirm_selector hard gate before apply_changes ───────────────────
+      if (block.name === 'apply_changes') {
+        const missing = unconfirmedSelectors(block.input?.css || '', confirmedSelectors);
+        if (missing.length > 0) {
+          const hint = `Refusing apply_changes — these selectors have not been confirmed "good" yet: ${JSON.stringify(missing)}. Call confirm_selector on each before applying. If confirm_selector returns 'empty' or 'too-broad', fix the selector before retrying.`;
+          console.log('[Vibe BG] apply_changes gate blocked', missing);
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, is_error: true, content: hint });
+          continue;
+        }
       }
 
       let result;
@@ -146,6 +194,15 @@ async function agentLoop(messages, session, port, url, apiKey, prompt) {
       } catch (err) {
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, is_error: true, content: err.message });
         continue;
+      }
+
+      // Record confirmed selectors so apply_changes can be gated against them.
+      if (block.name === 'confirm_selector' && result?.verdict === 'good' && block.input?.selector) {
+        const normalized = normalizeSelector(block.input.selector);
+        confirmedSelectors.add(normalized);
+        console.log(`[Vibe BG] confirmed selector added: "${normalized}" (matchCount=${result.matchCount}) — set size=${confirmedSelectors.size}`);
+      } else if (block.name === 'confirm_selector' && result?.verdict) {
+        console.log(`[Vibe BG] confirm_selector verdict=${result.verdict} selector="${block.input?.selector}" — NOT gated (need "good")`);
       }
 
       // Track failed inspect attempts so we can nudge toward ask_user after repeated misses.
@@ -183,4 +240,44 @@ function buildToolResultBlock(toolUseId, result) {
     return { type: 'tool_result', tool_use_id: toolUseId, content: result.content };
   }
   return { type: 'tool_result', tool_use_id: toolUseId, content: JSON.stringify(result) };
+}
+
+// ─── Helpers: selector gate + stuck-loop hashing ────────────────────────────
+// Selectors are normalized before set membership so trivial whitespace diffs
+// don't bypass the gate. Stable hash on tool input is a sorted-key JSON string.
+export function normalizeSelector(sel) {
+  return String(sel).trim().replace(/\s+/g, ' ').replace(/\s*!important/gi, '');
+}
+
+export function extractCssSelectors(css) {
+  if (!css || typeof css !== 'string') return [];
+  const out = new Set();
+  const rulePattern = /([^{}]+)\{[^}]*\}/g;
+  let m;
+  while ((m = rulePattern.exec(css)) !== null) {
+    const selectorList = m[1].trim();
+    if (!selectorList || selectorList.startsWith('@')) continue;
+    for (const raw of selectorList.split(',')) {
+      const cleaned = normalizeSelector(raw);
+      if (cleaned) out.add(cleaned);
+    }
+  }
+  return [...out];
+}
+
+export function unconfirmedSelectors(css, confirmedSet) {
+  return extractCssSelectors(css).filter(s => !confirmedSet.has(s));
+}
+
+function stableHash(obj) {
+  try {
+    if (obj === undefined || obj === null) return '';
+    if (typeof obj !== 'object') return JSON.stringify(obj);
+    const keys = Object.keys(obj).sort();
+    const shallow = {};
+    for (const k of keys) shallow[k] = obj[k];
+    return JSON.stringify(shallow);
+  } catch {
+    return '';
+  }
 }

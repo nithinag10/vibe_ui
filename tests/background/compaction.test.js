@@ -79,25 +79,41 @@ describe('getLastNTurns', () => {
 });
 
 describe('compressToolResultBlock', () => {
-  it('compresses inspect (selector/text/regex) results', () => {
+  it('compresses inspect results to top-N compact matches (preserves element data)', () => {
+    const matches = Array.from({ length: 15 }, (_, i) => ({
+      path: `div.foo:nth-child(${i + 1})`,
+      tag: 'div',
+      id: `id-${i}`,
+      classes: ['foo', `x${i}`],
+      rect: { x: 0, y: i * 10, w: 100, h: 20 },
+      text: 'a'.repeat(200),
+      outerHTML: '<div>' + 'b'.repeat(500) + '</div>',
+    }));
     const block = {
       type: 'tool_result',
       tool_use_id: 'abc',
-      content: JSON.stringify({
-        mode: 'selector',
-        query: '.foo',
-        total: 3,
-        page: 0,
-        matches: [{ path: 'div.foo', tag: 'div' }, { path: 'span.foo', tag: 'span' }],
-      }),
+      content: JSON.stringify({ mode: 'selector', query: '.foo', total: 15, matches }),
     };
     const result = compressToolResultBlock(block);
     const parsed = JSON.parse(result.content);
-    expect(parsed._pruned).toBe('inspect');
-    expect(parsed.mode).toBe('selector');
-    expect(parsed.query).toBe('.foo');
-    expect(parsed.total).toBe(3);
-    expect(parsed.matches).toBeUndefined();
+    expect(parsed._compacted).toBe('inspect');
+    expect(parsed.total).toBe(15);
+    expect(parsed.matches).toHaveLength(10);
+    expect(parsed.matches[0].tag).toBe('div');
+    expect(parsed.matches[0].id).toBe('id-0');
+    expect(parsed.matches[0].classes).toEqual(['foo', 'x0']);
+    expect(parsed.matches[0].rect).toEqual({ x: 0, y: 0, w: 100, h: 20 });
+    expect(parsed.matches[0].text.length).toBeLessThanOrEqual(100);
+    expect(parsed.matches[0].outerHTML.length).toBeLessThanOrEqual(200);
+  });
+
+  it('leaves zero-match inspect results untouched (the failure signal is load-bearing)', () => {
+    const block = {
+      type: 'tool_result',
+      tool_use_id: 'abc',
+      content: JSON.stringify({ mode: 'selector', query: '.nope', total: 0, matches: [] }),
+    };
+    expect(compressToolResultBlock(block)).toEqual(block);
   });
 
   it('compresses apply_changes results', () => {
@@ -183,8 +199,9 @@ describe('pruneOldToolResults', () => {
     const result = pruneOldToolResults(messages);
 
     const oldInspect = JSON.parse(result[2].content[0].content);
-    expect(oldInspect._pruned).toBe('inspect');
+    expect(oldInspect._compacted).toBe('inspect');
     expect(oldInspect.total).toBe(2);
+    expect(oldInspect.matches).toHaveLength(2);
 
     const recentApply = JSON.parse(result[6].content[0].content);
     expect(recentApply.success).toBe(true);
